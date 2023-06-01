@@ -27,10 +27,8 @@ deepsort = None
 
 object_counter = {} # leave car
 object_counter1 = {} # enter car
+line = [(2170,530), (2170, 670)] # meabong
 
-#line = [(100, 500), (1050, 500)] # test3
-# line = [(700, 500), (1200, 500)] # drone3_1080 center
-line = [(200, 500), (200, 720)] # drone3_1080 left
 speed_line_queue = {}
 def estimatespeed(Location1, Location2):
     #Euclidean Distance Formula
@@ -78,18 +76,18 @@ def xyxy_to_tlwh(bbox_xyxy):
         tlwh_bboxs.append(tlwh_obj)
     return tlwh_bboxs
 
-def compute_color_for_labels(label):
+def compute_color_for_labels(label): # 라벨 색상 변경
     """
     Simple function that adds fixed color depending on the class
     """
-    if label == 0: #person
-        color = (85,45,255)
-    elif label == 2: # Car
-        color = (222,82,175)
-    elif label == 3:  # Motobike
-        color = (0, 204, 255)
-    elif label == 5:  # Bus
-        color = (0, 149, 255)
+    if label == 0: # car
+        color = (13,138,255)
+    elif label == 1: # trcuk
+        color = (255,156,93)
+    elif label == 2:  # bus
+        color = (1, 174, 124)
+    elif label == 3:  # vehicle
+        color = (0, 235, 255)
     else:
         color = [int((p * (label ** 2 - label + 1)) % 255) for p in palette]
     return tuple(color)
@@ -97,36 +95,7 @@ def compute_color_for_labels(label):
 def draw_border(img, pt1, pt2, color, thickness, r, d): # 라벨(그림 영역) 그리기
     x1,y1 = pt1
     x2,y2 = pt2
-    # Top left (점선)
-    # cv2.line(img, (x1 + r, y1), (x1 + r + d, y1), color, thickness)
-    # cv2.line(img, (x1, y1 + r), (x1, y1 + r + d), color, thickness)
-    # cv2.ellipse(img, (x1 + r, y1 + r), (r, r), 180, 0, 90, color, thickness)
-    # Top right (점선)
-    # cv2.line(img, (x2 - r, y1), (x2 - r - d, y1), color, thickness)
-    # cv2.line(img, (x2, y1 + r), (x2, y1 + r + d), color, thickness)
-    # cv2.ellipse(img, (x2 - r, y1 + r), (r, r), 270, 0, 90, color, thickness)
-    # Bottom left (점선)
-    # cv2.line(img, (x1 + r, y2), (x1 + r + d, y2), color, thickness)
-    # cv2.line(img, (x1, y2 - r), (x1, y2 - r - d), color, thickness)
-    # cv2.ellipse(img, (x1 + r, y2 - r), (r, r), 90, 0, 90, color, thickness)
-    # Bottom right (점선)
-    # cv2.line(img, (x2 - r, y2), (x2 - r - d, y2), color, thickness)
-    # cv2.line(img, (x2, y2 - r), (x2, y2 - r - d), color, thickness)
-    # cv2.ellipse(img, (x2 - r, y2 - r), (r, r), 0, 0, 90, color, thickness)
-
-    # 시긱 박스 원본
-    # cv2.rectangle(img, (x1 + r, y1), (x2 - r, y2), color, -1, cv2.LINE_AA)
-    # cv2.rectangle(img, (x1, y1 + r), (x2, y2 - r - d), color, -1, cv2.LINE_AA)
-    
-    # 사각 박스
     cv2.rectangle(img, (x1, y1), (x2, y2 - d - 2), color, -1, cv2.LINE_AA) # -2 줄이면 올라감
-    
-    # 원형 박스
-    # cv2.circle(img, (x1 +r, y1+r), 2, color, 12)
-    # cv2.circle(img, (x2 -r, y1+r), 2, color, 12)
-    # cv2.circle(img, (x1 +r, y2-r), 2, color, 12)
-    # cv2.circle(img, (x2 -r, y2-r), 2, color, 12)
-    
     return img
 
 def UI_box(x, img, color=None, label=None, label_speed=None, label_id=None, line_thickness=None):
@@ -179,13 +148,15 @@ def get_direction(point1, point2):
 
     return direction_str
 def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
+    # 감지 영역
     #cv2.line(img, line[0], line[1], (46,162,112), 3) # 카운팅 라인
+    cv2.rectangle(img, (2170, 530), (3580, 670), [128, 255, 128], 1, cv2.LINE_AA)  # 고정값 테스트
 
     height, width, _ = img.shape
     # remove tracked point from buffer if object is lost
     for key in list(data_deque):
-      if key not in identities:
-        data_deque.pop(key)
+        if key not in identities:
+            data_deque.pop(key)
 
     for i, box in enumerate(bbox):
         x1, y1, x2, y2 = [int(i) for i in box]
@@ -202,8 +173,8 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
 
         # create new buffer for new object
         if id not in data_deque:  
-          data_deque[id] = deque(maxlen= 64)
-          speed_line_queue[id] = []
+            data_deque[id] = deque(maxlen= 64)
+            speed_line_queue[id] = []
         color = compute_color_for_labels(object_id[i])
         obj_name = names[object_id[i]]
         # label = '{}{:d}'.format("", id) + ":"+ '%s' % (obj_name)
@@ -211,23 +182,20 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
         # add center to buffer
         data_deque[id].appendleft(center)
         if len(data_deque[id]) >= 2:
-          direction = get_direction(data_deque[id][0], data_deque[id][1])
-          object_speed = estimatespeed(data_deque[id][1], data_deque[id][0])
-          speed_line_queue[id].append(object_speed)
-          if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
-            #   cv2.line(img, line[0], line[1], (255, 255, 255), 3) # 카운팅 라인 지날 때 색상 처리
-            #   if "South" in direction:
-              if "West" in direction:
-                if obj_name not in object_counter:
-                    object_counter[obj_name] = 1
-                else:
-                    object_counter[obj_name] += 1
-            #   if "North" in direction:
-              if "East" in direction:
-                if obj_name not in object_counter1:
-                    object_counter1[obj_name] = 1
-                else:
-                    object_counter1[obj_name] += 1
+            direction = get_direction(data_deque[id][0], data_deque[id][1])
+            object_speed = estimatespeed(data_deque[id][1], data_deque[id][0])
+            speed_line_queue[id].append(object_speed)
+            if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
+                if "West" in direction:
+                    if obj_name not in object_counter:
+                        object_counter[obj_name] = 1
+                    else:
+                        object_counter[obj_name] += 1
+                if "East" in direction:
+                    if obj_name not in object_counter1:
+                        object_counter1[obj_name] = 1
+                    else:
+                        object_counter1[obj_name] += 1
 
         label_speed = ""
         label_id = '[ %d ]' % (id)
@@ -237,28 +205,14 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
         except:
             pass
         UI_box(box, img, label=obj_name, label_speed=label_speed, label_id=label_id, color=color, line_thickness=None) # 라벨링 박스 그리기
-
-        # # draw trail
-        # for i in range(1, len(data_deque[id])):
-        #     if data_deque[id][i - 1] is None or data_deque[id][i] is None: # check if on buffer value is none
-        #         continue
-        #     thickness = int(np.sqrt(64 / float(i + i)) * 1.5) # generate dynamic thickness of trails
-        #     cv2.line(img, data_deque[id][i - 1], data_deque[id][i], color, thickness) # draw trails
     
         #4. Display Count in top right corner
-        # for idx, (key, value) in enumerate(object_counter1.items()):
+        # for idx, (key, value) in enumerate(object_counter1.items()): # 영역 카운팅 목록이 있으면
         #     cnt_str = str(key) + ":" +str(value)
         #     cv2.line(img, (width - 500,25), (width,25), [85,45,255], 40)
         #     cv2.putText(img, f'Number of Vehicles Entering', (width - 500, 35), 0, 1, [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)
         #     cv2.line(img, (width - 150, 65 + (idx*40)), (width, 65 + (idx*40)), [85, 45, 255], 30)
         #     cv2.putText(img, cnt_str, (width - 150, 75 + (idx*40)), 0, 1, [255, 255, 255], thickness = 2, lineType = cv2.LINE_AA)
-
-        # for idx, (key, value) in enumerate(object_counter.items()):
-        #     cnt_str1 = str(key) + ":" +str(value)
-        #     cv2.line(img, (20,25), (500,25), [85,45,255], 40)
-        #     cv2.putText(img, f'Numbers of Vehicles Leaving', (11, 35), 0, 1, [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)    
-        #     cv2.line(img, (20,65+ (idx*40)), (127,65+ (idx*40)), [85,45,255], 30)
-        #     cv2.putText(img, cnt_str1, (11, 75+ (idx*40)), 0, 1, [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)
     
     return img
 
