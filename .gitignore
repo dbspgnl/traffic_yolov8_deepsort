@@ -2,8 +2,10 @@ Include/*
 Lib/*
 Scripts/*
 share/*
+runs/*
 YOLOv8-DeepSORT-Object-Tracking/runs/detect/*
 YOLOv8-DeepSORT-Object-Tracking/ultralytics/yolo/v8/detect/deep_sort_pytorch
 YOLOv8-DeepSORT-Object-Tracking/ultralytics/yolo/v8/detect/*.mp4
 YOLOv8-DeepSORT-Object-Tracking/ultralytics/yolo/v8/detect/*.pt
 YOLOv8-DeepSORT-Object-Tracking/*.ipynb
+YOLOv8-DeepSORT-Object-Tracking/ultralytics/yolo/v8/detect/dataset*
