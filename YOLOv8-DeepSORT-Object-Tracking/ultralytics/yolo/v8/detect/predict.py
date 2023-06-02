@@ -27,7 +27,11 @@ deepsort = None
 
 object_counter = {} # leave car
 object_counter1 = {} # enter car
-line = [(2170,530), (2170, 670)] # meabong
+area1 = [(40, 520), (5720, 630)] # meabong 검출 영역1 (주 도로)
+# area1 = [(40, 520), (4400, 630)] # meabong 검출 영역1 (주 도로) # show 짤려서 임시
+area2 = [(2040, 520), (5000, 660)] # meabong 검출 영역2 (합류 도로)
+# area2 = [(2040, 520), (4355, 660)] # meabong 검출 영역2 (합류 도로) # show 짤려서 임시
+detect_area = [area1, area2] # area1 & area2
 
 speed_line_queue = {}
 def estimatespeed(Location1, Location2):
@@ -105,14 +109,11 @@ def UI_box(x, img, color=None, label=None, label_speed=None, label_id=None, line
     tl = 0.0005 * (img.shape[0] + img.shape[1]) / 2 # 0.75
     color = color or [random.randint(0, 255) for _ in range(3)] # 컬러링
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3])) # 센터
-    # cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA) # 박스(사각형)
-    # label_id = str(label_id)
     if label:
         tf = max(tl - 1, 1)  # font thickness
-        # t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
-        t_label_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0] # 글자 영역 사이즈
-        t_id_size = cv2.getTextSize(label_id, 0, fontScale=tl / 3, thickness=tf)[0] # 글자 영역 사이즈
-        # print(t_size)
+        t_label_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0] # 라벨 영역 사이즈
+        t_id_size = cv2.getTextSize(label_id, 0, fontScale=tl / 3, thickness=tf)[0] # id 영역 사이즈
+        
         img = draw_border(img, (c1[0], c1[1] - t_label_size[1] -3), (c1[0] + t_label_size[0], c1[1]+3), color, 1, 8, 2)
         cv2.putText(img, label, (c1[0], c1[1] - 4), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
         cv2.putText(img_origin, label_id, (c1[0] + t_label_size[0], c1[1] - 4), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
@@ -147,15 +148,34 @@ def get_direction(point1, point2):
         direction_str += ""
 
     return direction_str
-def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
-    # 감지 영역
-    #cv2.line(img, line[0], line[1], (46,162,112), 3) # 카운팅 라인
-    cv2.rectangle(img, (2170, 530), (3580, 670), [128, 255, 128], 1, cv2.LINE_AA)  # 고정값 테스트
+
+
+def isInDetectArea(center):
+    result = 0
+    detect_area_len = len(detect_area)
+    for i in range(detect_area_len):
+        if (detect_area[i][0][0] < center[0] < detect_area[i][1][0]) and (detect_area[i][0][1] < center[1] < detect_area[i][1][1]):
+            result +=1
+    return True if result > 0 else False # 최소 하나라도 포함되면 in
+
+# def isOutDetectArea(center): # 퇴출은 가로만 판단함... (좌>우)
+#     result = 0
+#     detect_area_len = len(detect_area)
+#     for i in range(detect_area_len):
+#         if center[0] > detect_area[i][1][0]: # [area num][0:좌상/1:우하][0:x/1:y]
+#             result +=1
+#     return True if result is detect_area_len else False # 모두 해당이 되면 out
+
+
+def draw_boxes(img, bbox, names, object_id, identities=None, offset=(0, 0)):
+    # 검출 영역
+    for area in detect_area:
+        cv2.rectangle(img, area[0], area[1], [128, 255, 128], 1, cv2.LINE_AA)
 
     height, width, _ = img.shape
     # remove tracked point from buffer if object is lost
     for key in list(data_deque):
-        if key not in identities:
+        if key not in identities: # 전체 영역 검출
             data_deque.pop(key)
 
     for i, box in enumerate(bbox):
@@ -165,37 +185,58 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
         y1 += offset[1]
         y2 += offset[1]
 
-        # code to find center of bottom edge
-        center = (int((x2+x1)/ 2), int((y2+y2)/2))
+        # code to find center of bottom edge > right or left middle
+        center_left = (int((x1+x1)/ 2), int((y1+y2)/2)) # 좌 > 우 퇴출 차량
+        center_right = (int((x2+x2)/ 2), int((y1+y2)/2)) # 좌 > 우 진입 차량
+        center = (int((x1+x2)/ 2), int((y1+y2)/2)) # 좌 > 우
 
         # get ID of object
         id = int(identities[i]) if identities is not None else 0
+        temp_id = id # 다시 생성하지 않도록 = 이번 프레임에서 사용
+
+        # 진입 조건
+        # if center_right[0] < detect_area[1][0][0] or center_right[1] < detect_area[1][0][1]: # width / height (좌상)
+        if not isInDetectArea(center): # 영역 밖
+            if id in data_deque: # 근데 데이터리스트에 있으면 지워줌
+                data_deque.pop(id)
+            continue
+
+        # 퇴출 조건
+        # if center_left[0] > detect_area[1][1][0] or center_left[1] > detect_area[1][1][1]: # width / height (우하)
+        # if isOutDetectArea(center_left):
+        #     if id not in data_deque: 
+        #         continue # 데이터리스트에 없는 놈이 영역 밖이면 스킵
+        #     else: 
+        #         print(center_left)
+        #         data_deque.pop(id)
+        #         continue
 
         # create new buffer for new object
-        if id not in data_deque:  
+        if id not in data_deque: # and id is not temp_id:  
             data_deque[id] = deque(maxlen= 64)
             speed_line_queue[id] = []
+
         color = compute_color_for_labels(object_id[i])
         obj_name = names[object_id[i]]
         # label = '{}{:d}'.format("", id) + ":"+ '%s' % (obj_name)
 
         # add center to buffer
-        data_deque[id].appendleft(center)
+        data_deque[id].appendleft(center_right)
         if len(data_deque[id]) >= 2:
             direction = get_direction(data_deque[id][0], data_deque[id][1])
             object_speed = estimatespeed(data_deque[id][1], data_deque[id][0])
             speed_line_queue[id].append(object_speed)
-            if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
-                if "West" in direction:
-                    if obj_name not in object_counter:
-                        object_counter[obj_name] = 1
-                    else:
-                        object_counter[obj_name] += 1
-                if "East" in direction:
-                    if obj_name not in object_counter1:
-                        object_counter1[obj_name] = 1
-                    else:
-                        object_counter1[obj_name] += 1
+            # if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
+            #     if "West" in direction:
+            #         if obj_name not in object_counter:
+            #             object_counter[obj_name] = 1
+            #         else:
+            #             object_counter[obj_name] += 1
+            #     if "East" in direction:
+            #         if obj_name not in object_counter1:
+            #             object_counter1[obj_name] = 1
+            #         else:
+            #             object_counter1[obj_name] += 1
 
         label_speed = ""
         label_id = '[ %d ]' % (id)
@@ -289,7 +330,7 @@ class DetectionPredictor(BasePredictor):
             identities = outputs[:, -2]
             object_id = outputs[:, -1]
             
-            draw_boxes(im0, bbox_xyxy, self.model.names, object_id,identities)
+            draw_boxes(im0, bbox_xyxy, self.model.names, object_id, identities)
 
         return log_string
 
