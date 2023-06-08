@@ -22,6 +22,8 @@ from collections import deque
 import numpy as np
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 data_deque = {}
+json_data = {}
+video_second_frame = 30
 
 deepsort = None
 
@@ -33,14 +35,16 @@ area2 = [(2040, 520), (5000, 660)] # meabong 검출 영역2 (합류 도로)
 # area2 = [(2040, 520), (4355, 660)] # meabong 검출 영역2 (합류 도로) # show 짤려서 임시
 detect_area = [area1, area2] # area1 & area2
 
-speed_line_queue = {}
+
 def estimatespeed(Location1, Location2):
     #Euclidean Distance Formula
     d_pixel = math.sqrt(math.pow(Location2[0] - Location1[0], 2) + math.pow(Location2[1] - Location1[1], 2))
     # defining thr pixels per meter
-    ppm = 8
+    # ppm = 8
+    ppm = 9.6 # 1m : 9.6pixel
+    # frame = 30
     d_meters = d_pixel/ppm
-    time_constant = 15*3.6
+    time_constant = video_second_frame*3.6 # km/h
     #distance = speed/time
     speed = d_meters * time_constant
 
@@ -158,16 +162,8 @@ def isInDetectArea(center):
             result +=1
     return True if result > 0 else False # 최소 하나라도 포함되면 in
 
-# def isOutDetectArea(center): # 퇴출은 가로만 판단함... (좌>우)
-#     result = 0
-#     detect_area_len = len(detect_area)
-#     for i in range(detect_area_len):
-#         if center[0] > detect_area[i][1][0]: # [area num][0:좌상/1:우하][0:x/1:y]
-#             result +=1
-#     return True if result is detect_area_len else False # 모두 해당이 되면 out
 
-
-def draw_boxes(img, bbox, names, object_id, identities=None, offset=(0, 0)):
+def draw_boxes(frame, img, bbox, names, object_id, identities=None, offset=(0, 0)):
     # 검출 영역
     for area in detect_area:
         cv2.rectangle(img, area[0], area[1], [128, 255, 128], 1, cv2.LINE_AA)
@@ -175,57 +171,60 @@ def draw_boxes(img, bbox, names, object_id, identities=None, offset=(0, 0)):
     height, width, _ = img.shape
     # remove tracked point from buffer if object is lost
     for key in list(data_deque):
-        if key not in identities: # 전체 영역 검출
+        if key not in identities and abs(frame - json_data[key]["now"]) > 60:
+            # print(json_data[key]["now"])
             data_deque.pop(key)
 
     for i, box in enumerate(bbox):
+        # 좌표
         x1, y1, x2, y2 = [int(i) for i in box]
         x1 += offset[0]
         x2 += offset[0]
         y1 += offset[1]
         y2 += offset[1]
-
-        # code to find center of bottom edge > right or left middle
-        center_left = (int((x1+x1)/ 2), int((y1+y2)/2)) # 좌 > 우 퇴출 차량
-        center_right = (int((x2+x2)/ 2), int((y1+y2)/2)) # 좌 > 우 진입 차량
-        center = (int((x1+x2)/ 2), int((y1+y2)/2)) # 좌 > 우
+        center = (int((x1+x2)/ 2), int((y1+y2)/2))
 
         # get ID of object
         id = int(identities[i]) if identities is not None else 0
-        temp_id = id # 다시 생성하지 않도록 = 이번 프레임에서 사용
 
         # 진입 조건
-        # if center_right[0] < detect_area[1][0][0] or center_right[1] < detect_area[1][0][1]: # width / height (좌상)
         if not isInDetectArea(center): # 영역 밖
             if id in data_deque: # 근데 데이터리스트에 있으면 지워줌
                 data_deque.pop(id)
             continue
 
-        # 퇴출 조건
-        # if center_left[0] > detect_area[1][1][0] or center_left[1] > detect_area[1][1][1]: # width / height (우하)
-        # if isOutDetectArea(center_left):
-        #     if id not in data_deque: 
-        #         continue # 데이터리스트에 없는 놈이 영역 밖이면 스킵
-        #     else: 
-        #         print(center_left)
-        #         data_deque.pop(id)
-        #         continue
+        # 범위 안에 데이터가 있으면 그걸로 처리
+        for k,v in data_deque.items():
+            if v and abs(v[0][0] - center[0]) < 20 and abs(v[0][1] - center[1]) < 20:
+                id = k
 
         # create new buffer for new object
-        if id not in data_deque: # and id is not temp_id:  
+        if id not in data_deque:
             data_deque[id] = deque(maxlen= 64)
-            speed_line_queue[id] = []
+            json_data[id] = {
+                "first": frame, 
+                "now": frame, 
+                "position": [], 
+                "during": 0, 
+                "class": object_id[i], 
+                "label": names[object_id[i]],
+                "speed": "0km"
+            }
 
-        color = compute_color_for_labels(object_id[i])
-        obj_name = names[object_id[i]]
-        # label = '{}{:d}'.format("", id) + ":"+ '%s' % (obj_name)
+        # 만약 frame이 현재랑 똑같으면 스킵
+        if json_data[id]["now"] and frame == json_data[id]["now"]: continue   
 
         # add center to buffer
-        data_deque[id].appendleft(center_right)
-        if len(data_deque[id]) >= 2:
-            direction = get_direction(data_deque[id][0], data_deque[id][1])
-            object_speed = estimatespeed(data_deque[id][1], data_deque[id][0])
-            speed_line_queue[id].append(object_speed)
+        data_deque[id].appendleft(center)
+        json_data[id]["now"] = frame
+        json_data[id]["position"].extend([x1, y1, x2, y2])
+        json_data[id]["during"] = (frame - json_data[id]["first"])
+
+        # 방향 측정
+        # if len(data_deque[id]) >= 2:
+        #     direction = get_direction(data_deque[id][0], data_deque[id][1])
+        #     object_speed = estimatespeed(data_deque[id][1], data_deque[id][0])
+        #     speed_line_queue[id].append(object_speed)
             # if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
             #     if "West" in direction:
             #         if obj_name not in object_counter:
@@ -237,12 +236,30 @@ def draw_boxes(img, bbox, names, object_id, identities=None, offset=(0, 0)):
             #             object_counter1[obj_name] = 1
             #         else:
             #             object_counter1[obj_name] += 1
-
+        
+        # 라벨 작업
+        color = compute_color_for_labels(json_data[id]["class"])
+        obj_name = json_data[id]["label"]
         label_speed = ""
         label_id = '[ %d ]' % (id)
         try:
-            # label = label + " " + str(sum(speed_line_queue[id])//len(speed_line_queue[id])) + "km/h"
-            label_speed = " " + str(sum(speed_line_queue[id])//len(speed_line_queue[id])) + "km"
+            json_x1 = (json_data[id]["position"][-4:][0]+json_data[id]["position"][-4:][2])//2 # 마지막 x평균
+            json_x2 = (json_data[id]["position"][-8:-4][0]+json_data[id]["position"][-8:-4][2])//2 # 마지막 바로전 x평균
+            json_y1 = (json_data[id]["position"][-4:][1]+json_data[id]["position"][-4:][3])//2 # 마지막 y평균
+            json_y2 = (json_data[id]["position"][-8:-4][1]+json_data[id]["position"][-8:-4][3])//2 # 마지막 바로전 y평균
+            check_spped = " " + str(estimatespeed((json_x1, json_y1), (json_x2, json_y2))) + "km"
+            label_speed = ""
+
+            if json_data[id]["speed"] == "0km": # 속도가 0이면 초기화해준다.
+                label_speed = check_spped
+                json_data[id]["speed"] = check_spped
+            elif json_data[id]["speed"] is not check_spped: # 속도가 체크랑 다른데
+                if frame % video_second_frame == 0: # 비디오 프레임 길이일 때(초당) 속도 갱신
+                    label_speed = check_spped
+                    json_data[id]["speed"] = check_spped
+                else:
+                    label_speed = json_data[id]["speed"]
+                    
         except:
             pass
         UI_box(box, img, label=obj_name, label_speed=label_speed, label_id=label_id, color=color, line_thickness=None) # 라벨링 박스 그리기
@@ -330,7 +347,7 @@ class DetectionPredictor(BasePredictor):
             identities = outputs[:, -2]
             object_id = outputs[:, -1]
             
-            draw_boxes(im0, bbox_xyxy, self.model.names, object_id, identities)
+            draw_boxes(frame, im0, bbox_xyxy, self.model.names, object_id, identities)
 
         return log_string
 
