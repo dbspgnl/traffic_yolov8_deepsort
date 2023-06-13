@@ -14,15 +14,18 @@ from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
+import pprint
 
 import cv2
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
 from collections import deque
+from collections import defaultdict
 import numpy as np
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
-data_deque = {}
+# data_deque = deque([], 64)
 json_data = {}
+# json_data = deque([], 64)
 video_second_frame = 30
 
 deepsort = None
@@ -39,16 +42,12 @@ detect_area = [area1, area2] # area1 & area2
 def estimatespeed(Location1, Location2):
     #Euclidean Distance Formula
     d_pixel = math.sqrt(math.pow(Location2[0] - Location1[0], 2) + math.pow(Location2[1] - Location1[1], 2))
-    # defining thr pixels per meter
-    # ppm = 8
-    ppm = 9.6 # 1m : 9.6pixel
-    # frame = 30
-    d_meters = d_pixel/ppm
+    ppm = 7.8 
+    d_meters = d_pixel/ppm # defining thr pixels per meter
     time_constant = video_second_frame*3.6 # km/h
-    #distance = speed/time
-    speed = d_meters * time_constant
-
+    speed = d_meters * time_constant #distance = speed/time
     return int(speed)
+
 def init_tracker():
     global deepsort
     cfg_deep = get_config()
@@ -108,28 +107,21 @@ def draw_border(img, pt1, pt2, color, thickness, r, d): # 라벨(그림 영역) 
 
 def UI_box(x, img, color=None, label=None, label_speed=None, label_id=None, line_thickness=None):
     # Plots one bounding box on image img
-    # tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
     img_origin = img
     tl = 0.0005 * (img.shape[0] + img.shape[1]) / 2 # 0.75
     color = color or [random.randint(0, 255) for _ in range(3)] # 컬러링
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3])) # 센터
+    label_speed = " " + str(label_speed) + "km"
+    label_id = '[ %d ]' % (label_id)
     if label:
         tf = max(tl - 1, 1)  # font thickness
         t_label_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0] # 라벨 영역 사이즈
         t_id_size = cv2.getTextSize(label_id, 0, fontScale=tl / 3, thickness=tf)[0] # id 영역 사이즈
-        
         img = draw_border(img, (c1[0], c1[1] - t_label_size[1] -3), (c1[0] + t_label_size[0], c1[1]+3), color, 1, 8, 2)
         cv2.putText(img, label, (c1[0], c1[1] - 4), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
         cv2.putText(img_origin, label_id, (c1[0] + t_label_size[0], c1[1] - 4), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
         cv2.putText(img_origin, label_speed, (c1[0] + t_label_size[0] + t_id_size[0], c1[1] - 4), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
         # putText(그림, 글자, 글자 시작점, 폰트, 글자 크기 비율, 글자 색상, 글자 굵기, 글자 선형태, 그림 좌표)
-
-
-def intersect(A,B,C,D):
-    return ccw(A,C,D) != ccw(B,C,D) and ccw(A,B,C) != ccw(A,B,D)
-
-def ccw(A,B,C):
-    return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
 
 
 def get_direction(point1, point2):
@@ -163,6 +155,18 @@ def isInDetectArea(center):
     return True if result > 0 else False # 최소 하나라도 포함되면 in
 
 
+def get_speed(positions): # 100 200 110 210 110 210 120 220
+    if len(positions) < 2: return 0
+    try:
+        json_x1 = (positions[-4:][0]+positions[-4:][2])//2 # 마지막 x평균
+        json_x2 = (positions[-8:-4][0]+positions[-8:-4][2])//2 # 마지막 바로전 x평균
+        json_y1 = (positions[-4:][1]+positions[-4:][3])//2 # 마지막 y평균
+        json_y2 = (positions[-8:-4][1]+positions[-8:-4][3])//2 # 마지막 바로전 y평균
+        return estimatespeed((json_x1, json_y1), (json_x2, json_y2))
+    except:
+        return 0
+        
+
 def draw_boxes(frame, img, bbox, names, object_id, identities=None, offset=(0, 0)):
     # 검출 영역
     for area in detect_area:
@@ -170,108 +174,62 @@ def draw_boxes(frame, img, bbox, names, object_id, identities=None, offset=(0, 0
 
     height, width, _ = img.shape
     # remove tracked point from buffer if object is lost
-    for key in list(data_deque):
-        if key not in identities and abs(frame - json_data[key]["now"]) > 60:
-            # print(json_data[key]["now"])
-            data_deque.pop(key)
+    for key in list(json_data):
+        if key in json_data and frame > json_data[key]["now"] + 60:#60프레임이 지날 때까지도 나타나지 않으면 그땐 지우기
+            if key not in identities:
+                json_data.pop(key) # 제거하면 lost 되서 더 이상 찾을 수가 없음
+            
 
     for i, box in enumerate(bbox):
-        # 좌표
         x1, y1, x2, y2 = [int(i) for i in box]
         x1 += offset[0]
         x2 += offset[0]
         y1 += offset[1]
         y2 += offset[1]
         center = (int((x1+x2)/ 2), int((y1+y2)/2))
-
-        # get ID of object
-        id = int(identities[i]) if identities is not None else 0
-
-        # 진입 조건
-        if not isInDetectArea(center): # 영역 밖
-            if id in data_deque: # 근데 데이터리스트에 있으면 지워줌
-                data_deque.pop(id)
-            continue
-
-        # 범위 안에 데이터가 있으면 그걸로 처리
-        for k,v in data_deque.items():
-            if v and abs(v[0][0] - center[0]) < 20 and abs(v[0][1] - center[1]) < 20:
-                id = k
-
-        # create new buffer for new object
-        if id not in data_deque:
-            data_deque[id] = deque(maxlen= 64)
+        id = int(identities[i]) if identities is not None else 0 # get ID of object
+        if id not in json_data: # create deque by id 
+            # data_deque[id] = deque(maxlen= 64)
             json_data[id] = {
+                "id": id,
                 "first": frame, 
                 "now": frame, 
+                "nows": [], 
+                "centers": [], 
                 "position": [], 
                 "during": 0, 
                 "class": object_id[i], 
                 "label": names[object_id[i]],
-                "speed": "0km"
+                "speed": 0
             }
-
-        # 만약 frame이 현재랑 똑같으면 스킵
-        if json_data[id]["now"] and frame == json_data[id]["now"]: continue   
-
         # add center to buffer
-        data_deque[id].appendleft(center)
+        # data_deque[id].appendleft(center)
         json_data[id]["now"] = frame
+        json_data[id]["nows"].append(frame)
         json_data[id]["position"].extend([x1, y1, x2, y2])
         json_data[id]["during"] = (frame - json_data[id]["first"])
+        json_data[id]["centers"].append(center)
+        if frame % video_second_frame == 0:
+            json_data[id]["speed"] = get_speed(json_data[id]["position"])
 
-        # 방향 측정
-        # if len(data_deque[id]) >= 2:
-        #     direction = get_direction(data_deque[id][0], data_deque[id][1])
-        #     object_speed = estimatespeed(data_deque[id][1], data_deque[id][0])
-        #     speed_line_queue[id].append(object_speed)
-            # if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
-            #     if "West" in direction:
-            #         if obj_name not in object_counter:
-            #             object_counter[obj_name] = 1
-            #         else:
-            #             object_counter[obj_name] += 1
-            #     if "East" in direction:
-            #         if obj_name not in object_counter1:
-            #             object_counter1[obj_name] = 1
-            #         else:
-            #             object_counter1[obj_name] += 1
-        
-        # 라벨 작업
-        color = compute_color_for_labels(json_data[id]["class"])
-        obj_name = json_data[id]["label"]
-        label_speed = ""
-        label_id = '[ %d ]' % (id)
-        try:
-            json_x1 = (json_data[id]["position"][-4:][0]+json_data[id]["position"][-4:][2])//2 # 마지막 x평균
-            json_x2 = (json_data[id]["position"][-8:-4][0]+json_data[id]["position"][-8:-4][2])//2 # 마지막 바로전 x평균
-            json_y1 = (json_data[id]["position"][-4:][1]+json_data[id]["position"][-4:][3])//2 # 마지막 y평균
-            json_y2 = (json_data[id]["position"][-8:-4][1]+json_data[id]["position"][-8:-4][3])//2 # 마지막 바로전 y평균
-            check_spped = " " + str(estimatespeed((json_x1, json_y1), (json_x2, json_y2))) + "km"
-            label_speed = ""
+    for k,v in json_data.copy().items():
+        if frame not in v["nows"]: # nows 연장
+            v["nows"].append(frame)
+        color = compute_color_for_labels(v["class"])
 
-            if json_data[id]["speed"] == "0km": # 속도가 0이면 초기화해준다.
-                label_speed = check_spped
-                json_data[id]["speed"] = check_spped
-            elif json_data[id]["speed"] is not check_spped: # 속도가 체크랑 다른데
-                if frame % video_second_frame == 0: # 비디오 프레임 길이일 때(초당) 속도 갱신
-                    label_speed = check_spped
-                    json_data[id]["speed"] = check_spped
-                else:
-                    label_speed = json_data[id]["speed"]
-                    
-        except:
-            pass
-        UI_box(box, img, label=obj_name, label_speed=label_speed, label_id=label_id, color=color, line_thickness=None) # 라벨링 박스 그리기
-    
-        #4. Display Count in top right corner
-        # for idx, (key, value) in enumerate(object_counter1.items()): # 영역 카운팅 목록이 있으면
-        #     cnt_str = str(key) + ":" +str(value)
-        #     cv2.line(img, (width - 500,25), (width,25), [85,45,255], 40)
-        #     cv2.putText(img, f'Number of Vehicles Entering', (width - 500, 35), 0, 1, [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)
-        #     cv2.line(img, (width - 150, 65 + (idx*40)), (width, 65 + (idx*40)), [85, 45, 255], 30)
-        #     cv2.putText(img, cnt_str, (width - 150, 75 + (idx*40)), 0, 1, [255, 255, 255], thickness = 2, lineType = cv2.LINE_AA)
-    
+        # # 진입 조건
+        if not isInDetectArea(v["centers"][-1]): # 영역 밖
+            if k in json_data: # 근데 데이터리스트에 있으면 지워줌
+                json_data.pop(k)
+            continue
+
+        # 범위 내 겹친 데이터가 있으면 하나로 처리
+        # if v and (k is not id) and abs(v[0][0] - center[0]) < 20 and abs(v[0][1] - center[1]) < 20:
+        #     id = k
+
+        if frame == v["now"]: # 현재 프레임과 일치하는 데이터만 라벨링
+            UI_box(v["position"][-4:], img, label=v["label"], label_speed=v["speed"], label_id=v["id"], color=color, line_thickness=None)
+
     return img
 
 

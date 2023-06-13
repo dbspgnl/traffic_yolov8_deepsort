@@ -6,13 +6,15 @@ import math
 import warnings
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 
 from ultralytics.yolo.utils import TryExcept
-
 
 # boxes
 def box_area(box):

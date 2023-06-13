@@ -6,7 +6,10 @@ from pathlib import Path
 from urllib.error import URLError
 
 import cv2
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
