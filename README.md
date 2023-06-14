@@ -30,6 +30,17 @@ https://universe.roboflow.com/drone-dataset-mvh8i/detection-bzujh
 %cd YOLOv8-DeepSORT-Object-Tracking
 !pip install -e .[dev]
 ```
+### 설치 과정에서 cp949 오류 발생시
+```
+pip install UnicodeDecodeError: 'cp949' codec can't decode byte 0xf0 in position 19: illegal multibyte sequence
+```
+발생한 코드(pathlib.py)를 열어서 아래처럼 바꿔준다.
+```
+def open(self, filename):
+	#...
+	self.file = io.open(self.filename, 'r', encoding='utf-8', errors=self.errors) # encoding을 utf-8로 지정
+```
+
 이후 의존성 관련 에러 발생시
 1. **[No module named easydict](https://stackoverflow.com/questions/43732185/importerror-no-module-named-easydict)** 
 왜 의존성에 포함되지 않은지 모르겠다만… 따로 설치해준다.
@@ -56,7 +67,7 @@ python predict.py model=traffic_best.pt source="test3.mp4"
 ```
 각종 옵션과 설명은 공식에서 확인  
 **[ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)**  
-**[ultralytics Quickstart Docs](https://docs.ultralytics.com/quickstart/)** 
+**[ultralytics Quickstart Docs](https://docs.ultralytics.com/quickstart/)**  
 **[ultralytics Quickstart Docs OPTION](https://docs.ultralytics.com/usage/cfg/#train)** 
 ```python
 # 작업 과정 보기
