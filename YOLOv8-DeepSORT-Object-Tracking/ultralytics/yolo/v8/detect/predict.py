@@ -165,6 +165,9 @@ def get_speed(positions): # 100 200 110 210 110 210 120 220
         return estimatespeed((json_x1, json_y1), (json_x2, json_y2))
     except:
         return 0
+
+def get_center(position):
+    return (int((position[0]+position[2])/ 2), int((position[1]+position[3])/2))
         
 
 def draw_boxes(frame, img, bbox, names, object_id, identities=None, offset=(0, 0)):
@@ -186,7 +189,7 @@ def draw_boxes(frame, img, bbox, names, object_id, identities=None, offset=(0, 0
         x2 += offset[0]
         y1 += offset[1]
         y2 += offset[1]
-        center = (int((x1+x2)/ 2), int((y1+y2)/2))
+        center = get_center([x1,y1,x2,y2])
         id = int(identities[i]) if identities is not None else 0 # get ID of object
         if id not in json_data: # create deque by id 
             # data_deque[id] = deque(maxlen= 64)
@@ -200,7 +203,8 @@ def draw_boxes(frame, img, bbox, names, object_id, identities=None, offset=(0, 0
                 "during": 0, 
                 "class": object_id[i], 
                 "label": names[object_id[i]],
-                "speed": 0
+                "speed": 0,
+                "move": 0 # 추후 direct 필요
             }
         # add center to buffer
         # data_deque[id].appendleft(center)
@@ -209,13 +213,15 @@ def draw_boxes(frame, img, bbox, names, object_id, identities=None, offset=(0, 0
         json_data[id]["position"].extend([x1, y1, x2, y2])
         json_data[id]["during"] = (frame - json_data[id]["first"])
         json_data[id]["centers"].append(center)
-        if frame % video_second_frame == 0:
+        if (json_data[id]["position"] and json_data[id]["speed"] == 0) or frame % video_second_frame == 0:
             json_data[id]["speed"] = get_speed(json_data[id]["position"])
+        if len(json_data[id]["centers"]) >= 2:
+            json_data[id]["move"] = abs(json_data[id]["centers"][-1][0] - json_data[id]["centers"][-2][0])
 
     for k,v in json_data.copy().items():
         if frame not in v["nows"]: # nows 연장
             v["nows"].append(frame)
-        color = compute_color_for_labels(v["class"])
+            v["centers"].append((v["centers"][-1][0]+v["move"], v["centers"][-1][1]))
 
         # # 진입 조건
         if not isInDetectArea(v["centers"][-1]): # 영역 밖
@@ -223,11 +229,25 @@ def draw_boxes(frame, img, bbox, names, object_id, identities=None, offset=(0, 0
                 json_data.pop(k)
             continue
 
-        # 범위 내 겹친 데이터가 있으면 하나로 처리
-        # if v and (k is not id) and abs(v[0][0] - center[0]) < 20 and abs(v[0][1] - center[1]) < 20:
-        #     id = k
+        # 범위 내 겹친 데이터가 있으면 하나로 처리 (위장)
+        error_range = 20
+        if v["class"] == 0 or v["class"] == 3: error_range = 20
+        elif v["class"] == 1 or v["class"] == 2: error_range = 50
+        is_skip = False
+        for k2,v2 in json_data.copy().items():
+            # 5픽셀 차이는 의미없다고 판단
+            if  k > k2 and abs(v["centers"][-1][0] - v2["centers"][-1][0]) < 5 and abs(v["centers"][-1][1] - v2["centers"][-1][1]) < 5: 
+                is_skip = True
+            # 가로 도로에서 세로 고정
+            elif  k > k2 and abs(v["centers"][-1][0] - v2["centers"][-1][0]) < error_range and abs(v["centers"][-1][1] - v2["centers"][-1][1]) < 10: 
+                json_data[k]["id"] = k2
+                json_data[k]["class"] = v2["class"]
+                json_data[k]["label"] = v2["label"]
+                json_data[k]["speed"] = v2["speed"]
+        if is_skip: continue
 
         if frame == v["now"]: # 현재 프레임과 일치하는 데이터만 라벨링
+            color = compute_color_for_labels(v["class"])
             UI_box(v["position"][-4:], img, label=v["label"], label_speed=v["speed"], label_id=v["id"], color=color, line_thickness=None)
 
     return img
