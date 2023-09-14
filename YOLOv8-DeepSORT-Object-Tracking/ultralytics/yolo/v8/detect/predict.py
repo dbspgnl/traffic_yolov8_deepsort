@@ -32,9 +32,11 @@ deepsort = None
 
 object_counter = {} # leave car
 object_counter1 = {} # enter car
-area1 = [(40, 520), (5720, 630)] # meabong 검출 영역1 (주 도로)
+# area1 = [(40, 520), (5720, 630)] # meabong 검출 영역1 (주 도로)
+area1 = [(40, 570), (5720, 720)] # meabong 검출 영역1 (주 도로)
 # area1 = [(40, 520), (4400, 630)] # meabong 검출 영역1 (주 도로) # show 짤려서 임시
-area2 = [(2040, 520), (5000, 660)] # meabong 검출 영역2 (합류 도로)
+# area2 = [(2040, 520), (5000, 660)] # meabong 검출 영역2 (합류 도로)
+area2 = [(2040, 570), (5000, 750)] # meabong 검출 영역2 (합류 도로)
 # area2 = [(2040, 520), (4355, 660)] # meabong 검출 영역2 (합류 도로) # show 짤려서 임시
 detect_area = [area1, area2] # area1 & area2
 
